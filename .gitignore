@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Local credentials
+api_key.txt
+
+# Local databases and states
+bot_data.db
+bot_data.db-journal
+
+# Local logs
+bot.log
+
+# Browser persistent profiles
+chrome_profile/
+
+# Temporary visual assets
+temp_tweet.png
+
+# IDEs
+.vscode/
+.idea/
