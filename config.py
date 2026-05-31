@@ -75,4 +75,31 @@ FEEDS_TO_SCAN = [
     "https://x.com/home"                                 # Home page
 ]
 
+# Email notification settings (Loaded dynamically from email_credentials.txt)
+GMAIL_SENDER = ""
+GMAIL_RECEIVER = ""
+GMAIL_APP_PASSWORD = ""
+ENABLE_EMAIL_NOTIFICATIONS = False
+
+try:
+    with open(os.path.join(os.path.dirname(__file__), "email_credentials.txt"), "r", encoding="utf-8") as f_mail:
+        for line in f_mail:
+            line_strip = line.strip()
+            if not line_strip or line_strip.startswith("#"):
+                continue
+            if "=" in line_strip:
+                k, v = line_strip.split("=", 1)
+                k = k.strip()
+                v = v.strip()
+                if k == "SENDER_EMAIL":
+                    GMAIL_SENDER = v
+                elif k == "RECEIVER_EMAIL":
+                    GMAIL_RECEIVER = v
+                elif k == "GMAIL_APP_PASSWORD":
+                    GMAIL_APP_PASSWORD = v
+                elif k == "ENABLE_EMAIL_NOTIFICATIONS":
+                    ENABLE_EMAIL_NOTIFICATIONS = (v.lower() == "true")
+except Exception:
+    pass
+
 

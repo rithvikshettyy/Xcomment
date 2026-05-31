@@ -6,6 +6,7 @@ __pycache__/
 
 # Local credentials
 api_key.txt
+email_credentials.txt
 
 # Local databases and states
 bot_data.db

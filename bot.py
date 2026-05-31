@@ -11,6 +11,7 @@ import config
 import db
 import browser
 import replier
+import notifier
 
 # Setup Rich and Premium Logger configuration
 logging.basicConfig(
@@ -409,6 +410,8 @@ async def run_bot(dry_run: bool = False):
                     raise
                 except Exception as e_loop:
                     logger.error(f"[TEMPORARY ERROR] Unexpected error during bot loop iteration: {e_loop}")
+                    # Dispatch Gmail error alert asynchronously (non-blocking)
+                    notifier.send_error_email(f"Unexpected error in bot iteration: {e_loop}")
                     # Switch target feed to clear potential page hangs/deadlocks
                     current_feed_idx = (current_feed_idx + 1) % len(config.FEEDS_TO_SCAN)
                     logger.info(f"Switching target feed to index {current_feed_idx} ({config.FEEDS_TO_SCAN[current_feed_idx]}) to retry after a safety break.")
@@ -416,6 +419,8 @@ async def run_bot(dry_run: bool = False):
                     
         except replier.GeminiQuotaExceededException as eq:
             logger.critical(f"GEMINI API FREE TIER LIMIT REACHED: {eq}")
+            # Dispatch Gmail error alert for quota exhaustion
+            notifier.send_error_email(f"Gemini API Quota Limit Exhausted: {eq}")
             logger.info("Closing browser context and terminating cleanly...")
             try:
                 await context.close()
@@ -425,6 +430,8 @@ async def run_bot(dry_run: bool = False):
             sys.exit(0)
         except Exception as e:
             logger.critical(f"An unexpected critical bot error occurred: {e}")
+            # Dispatch Gmail error alert for catastrophic failures
+            notifier.send_error_email(f"Catastrophic Unexpected Bot Error: {e}")
             await asyncio.sleep(60)
 
 if __name__ == "__main__":
