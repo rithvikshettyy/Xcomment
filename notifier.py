@@ -27,27 +27,48 @@ def send_error_email(error_message: str, traceback_details: str = None) -> bool:
         msg = MIMEMultipart()
         msg["From"] = config.GMAIL_SENDER
         msg["To"] = config.GMAIL_RECEIVER
-        msg["Subject"] = "🚨 CRITICAL: X Comment Bot Error Alert!"
+        # Trim error message in subject to keep it neat
+        short_err = error_message.split('\n')[0]
+        if len(short_err) > 40:
+            short_err = short_err[:40] + "..."
+        msg["Subject"] = f"🚨 X Bot Alert: {short_err}"
         
-        # 2. Formulate email body
+        # 2. Formulate email body (Minimalist premium aesthetic)
         tb_content = traceback_details or traceback.format_exc()
         body = f"""
-<h2>🚨 X Comment Bot Error Alert</h2>
-<p>Your 24/7 X automation bot has encountered a critical event and wants to notify you.</p>
-
-<hr/>
-<p><strong>Error Message:</strong></p>
-<pre style="background: #f8f9fa; padding: 10px; border-left: 4px solid #dc3545; font-family: monospace;">
-{error_message}
-</pre>
-
-<p><strong>Traceback/Context:</strong></p>
-<pre style="background: #f8f9fa; padding: 10px; border: 1px solid #dee2e6; font-family: monospace; font-size: 13px; max-height: 400px; overflow-y: auto;">
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f5f7; padding: 20px; color: #333333; line-height: 1.5; max-width: 600px; margin: 0 auto; border-radius: 8px;">
+    <div style="background-color: #ffffff; padding: 24px; border-radius: 12px; border: 1px solid #e1e4e8; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+        <h2 style="margin-top: 0; color: #d9383a; font-size: 20px; font-weight: 700; border-bottom: 2px solid #f0f2f5; padding-bottom: 12px;">
+            🚨 X Comment Bot Alert
+        </h2>
+        
+        <p style="font-size: 14px; color: #4b5563; margin-top: 16px;">
+            Your 24/7 X automation bot encountered an issue and has successfully recovered. Details:
+        </p>
+        
+        <div style="background-color: #fff5f5; border-left: 4px solid #d9383a; padding: 14px; border-radius: 6px; margin: 20px 0;">
+            <strong style="color: #b91c1c; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">
+                Error Message
+            </strong>
+            <span style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 13px; color: #1f2937; word-break: break-word; font-weight: 600;">
+                {error_message}
+            </span>
+        </div>
+        
+        <details style="margin-top: 20px; cursor: pointer;">
+            <summary style="font-size: 13px; color: #2563eb; font-weight: 600; outline: none; margin-bottom: 8px;">
+                🔍 View Technical Traceback / Context
+            </summary>
+            <pre style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 11px; color: #475569; overflow-x: auto; max-height: 250px; margin: 8px 0 0 0; line-height: 1.4;">
 {tb_content}
-</pre>
-<hr/>
-
-<p style="color: #6c757d; font-size: 12px;">This is an automated notification from your local X Comment Bot running 24/7. None of your local credentials were sent or exposed.</p>
+            </pre>
+        </details>
+        
+        <div style="margin-top: 28px; border-top: 1px solid #f0f2f5; padding-top: 16px; font-size: 11px; color: #9ca3af; text-align: center;">
+            Sent automatically by X Comment Bot. Local credentials remain 100% secure.
+        </div>
+    </div>
+</div>
 """
         msg.attach(MIMEText(body, "html"))
         
