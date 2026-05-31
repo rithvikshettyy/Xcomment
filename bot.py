@@ -14,12 +14,18 @@ import replier
 import notifier
 
 # Setup Rich and Premium Logger configuration
+import logging.handlers
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("bot.log", encoding="utf-8")
+        logging.handlers.RotatingFileHandler(
+            "bot.log",
+            maxBytes=20 * 1024,  # 20 KB limit (keeps approx 150-200 lines of latest logs)
+            backupCount=0,       # Discard older logs, no backup files
+            encoding="utf-8"
+        )
     ]
 )
 logger = logging.getLogger("bot.main")
