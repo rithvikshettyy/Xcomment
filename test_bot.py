@@ -69,3 +69,28 @@ def test_quota_error_detection():
     with pytest.raises(GeminiQuotaExceededException):
         raise GeminiQuotaExceededException("Quota exhausted!")
 
+
+def test_dynamic_spacing_calculation():
+    from bot import calculate_even_spacing_delay
+    import config
+    from unittest.mock import patch
+    
+    # 1. Test Fixed Pacing Mode (with random pacing turned off)
+    with patch("config.USE_RANDOM_PACING", False), patch("config.USE_FIXED_PACING", True), patch("config.PACING_SECS", 1200):
+        assert calculate_even_spacing_delay(replies_sent_today=0, daily_cap=30) == 1200
+        
+    # 2. Test Dynamic Pacing Mode (with random pacing turned off)
+    with patch("config.USE_RANDOM_PACING", False), patch("config.USE_FIXED_PACING", False), patch("config.MIN_PACING_SECS", 30), patch("config.MAX_PACING_SECS", 1200), patch("bot.get_seconds_remaining_in_window", return_value=10800):
+        # Outside the window (or before start), it should use the full 3 hours (10800 seconds)
+        # If 30 replies remaining: spacing should be 10800 / 30 = 360 seconds (6 minutes)
+        assert calculate_even_spacing_delay(replies_sent_today=0, daily_cap=30) == 360
+        
+        # If 60 replies remaining: spacing should be 10800 / 60 = 180 seconds (3 minutes)
+        assert calculate_even_spacing_delay(replies_sent_today=0, daily_cap=60) == 180
+
+    # 3. Test New Randomized Pacing Mode
+    with patch("config.USE_RANDOM_PACING", True), patch("config.MIN_PACING_SECS", 300), patch("config.MAX_PACING_SECS", 1800):
+        for _ in range(20):
+            val = calculate_even_spacing_delay(replies_sent_today=0, daily_cap=30)
+            assert 300 <= val <= 1800
+

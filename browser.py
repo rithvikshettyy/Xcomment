@@ -248,6 +248,45 @@ async def analyze_tweet_details(page: Page, tweet_url: str) -> dict:
     articles = await page.query_selector_all('article[data-testid="tweet"]')
     logger.info(f"Found {len(articles)} total articles on details page.")
     
+    # Look for our own username in ANY loaded replies on the page to prevent double replying!
+    has_self_reply = False
+    my_username = getattr(config, "MY_USERNAME", "").lower()
+    
+    if my_username:
+        for elem in articles[1:]:
+            try:
+                user_elem = await elem.query_selector('[data-testid="User-Name"]')
+                if user_elem:
+                    user_text = await user_elem.inner_text()
+                    match = re.search(r"@(\w+)", user_text)
+                    if match:
+                        author_handle = match.group(1).lower()
+                        if author_handle == my_username:
+                            logger.warning(f"[DOUBLE REPLY GUARD] Detected existing reply by @{my_username} on this tweet. Skipping.")
+                            has_self_reply = True
+                            break
+            except Exception:
+                pass
+                
+        # Also perform profile link dynamic check in replies to be 100% robust
+        if not has_self_reply:
+            try:
+                profile_links = await page.query_selector_all(f'a[href="/{my_username}"]')
+                for link in profile_links:
+                    ancestor = await link.evaluate_handle("el => el.closest('article[data-testid=\"tweet\"]')")
+                    if ancestor:
+                        # Ensure it's not the first (parent) article
+                        first_article = await page.query_selector('article[data-testid="tweet"]')
+                        is_parent = False
+                        if first_article:
+                            is_parent = await page.evaluate("(el1, el2) => el1 === el2", ancestor, first_article)
+                        if not is_parent:
+                            logger.warning(f"[DOUBLE REPLY GUARD] Detected profile link for @{my_username} in a reply article. Skipping.")
+                            has_self_reply = True
+                            break
+            except Exception as e_link:
+                logger.debug(f"Failed profile links query: {e_link}")
+            
     top_replies = []
     
     # Skip index 0 because that is the original parent tweet. Limit to maximum 10 comments for context.
@@ -288,7 +327,8 @@ async def analyze_tweet_details(page: Page, tweet_url: str) -> dict:
     return {
         "original_text": original_text,
         "replies": top_replies,
-        "has_image": has_image
+        "has_image": has_image,
+        "has_self_reply": has_self_reply
     }
 
 async def post_reply(page: Page, tweet_url: str, reply_text: str) -> bool:
@@ -305,8 +345,9 @@ async def post_reply(page: Page, tweet_url: str, reply_text: str) -> bool:
         reply_editor_selector = 'div[data-testid="tweetTextarea_0"]'
         await page.wait_for_selector(reply_editor_selector, timeout=10000)
         
-        # Click on the editor to focus
+        # Click and focus on the editor
         await page.click(reply_editor_selector)
+        await page.focus(reply_editor_selector)
         await asyncio.sleep(random.uniform(0.5, 1.5))
         
         # Human-like typing
@@ -319,16 +360,14 @@ async def post_reply(page: Page, tweet_url: str, reply_text: str) -> bool:
             
         await asyncio.sleep(random.uniform(1.0, 2.0))
         
-        # Click reply/post button using multiple fallback selectors
+        # Click reply/post button using strictly inline reply selectors to prevent posting as new tweets
         post_btn_selectors = [
             'div[data-testid="tweetButtonInline"]',
             'button[data-testid="tweetButtonInline"]',
-            'div[data-testid="tweetButton"]',
-            'button[data-testid="tweetButton"]',
+            '[data-testid="inlineCompose"] [role="button"]:has-text("Reply")',
+            '[data-testid="inlineCompose"] button:has-text("Reply")',
             'div[role="button"] span:has-text("Reply")',
-            'div[role="button"] span:has-text("Post")',
-            'button:has-text("Reply")',
-            'button:has-text("Post")'
+            'button:has-text("Reply")'
         ]
         
         button_clicked = False
@@ -418,4 +457,20 @@ async def setup_inspiration_feed(page: Page) -> bool:
     except Exception as e:
         logger.error(f"[INSPIRATION] Error configuring Inspiration feed country filter: {e}")
         return False
+
+async def get_logged_in_username(page: Page) -> str:
+    """Extracts the logged-in user's handle from the sidebar switcher button."""
+    try:
+        import re
+        switcher = await page.query_selector('[data-testid="SideNav_AccountSwitcher_Button"]')
+        if switcher:
+            text = await switcher.inner_text()
+            match = re.search(r"@(\w+)", text)
+            if match:
+                username = match.group(1).lower()
+                logger.info(f"Successfully detected logged-in user handle: @{username}")
+                return username
+    except Exception as e:
+        logger.debug(f"Failed to extract logged-in username switcher: {e}")
+    return ""
 

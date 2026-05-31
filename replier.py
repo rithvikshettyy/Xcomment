@@ -49,7 +49,7 @@ def generate_reply_candidates(original_tweet: str, top_replies: list, image_path
     
     prompt = f"""
 You are an expert X (Twitter) user known for writing highly engaging, organic, human-sounding replies.
-Your goal is to analyze a tweet (both its text and any attached screenshot of its image/video/layout) and its top replies, identify the topic, tone, humor style, and writing style, and then generate 3 distinct candidate replies that will fit perfectly in the conversation thread.
+Your goal is to analyze a tweet text and its top replies, identify the topic, tone, humor style, and writing style, and then generate 3 distinct candidate replies that will fit perfectly in the conversation thread.
 
 Original Tweet Text:
 \"\"\"
@@ -63,7 +63,7 @@ Top Performing Replies in the Thread:
 
 Guidelines for generating candidates:
 1. DO NOT copy or paraphrase the existing replies. They must be completely original.
-2. Ensure they are relevant to the topic and visual elements of the original tweet.
+2. Ensure they are relevant to the topic of the original tweet.
 3. Match the tone and humor style of the thread (whether it's sarcastic, funny, intellectual, curious, or meme-focused).
 4. Be concise and punchy. Human tweets are rarely long paragraphs.
 5. Sound human and conversational. Avoid corporate speak, overly polished marketing phrases, or typical AI clichés (e.g., "Ah, the beauty of...", "Indeed,", "Let's dive in").
@@ -130,7 +130,7 @@ def select_best_reply(candidates: list[str], original_tweet: str, top_replies: l
     replies_str = json.dumps(top_replies, indent=2)
     
     prompt = f"""
-You are an expert editor. You need to analyze the original tweet (text and attached screenshot), the top replies in the thread, and 3 candidate replies we generated.
+You are an expert editor. You need to analyze the original tweet text, the top replies in the thread, and 3 candidate replies we generated.
 Select the single best candidate reply that will maximize views, engagement, and fits most naturally into the thread without sounding automated.
 
 Original Tweet Text:

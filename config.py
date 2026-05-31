@@ -37,17 +37,23 @@ MIN_DAILY_REPLIES = 60
 MAX_DAILY_REPLIES = 70
 
 # Replying Time Window (IST)
-# Window is 12:00 AM IST to 5:00 AM IST
-WINDOW_START_HOUR = 0  # 12:00 AM
-WINDOW_END_HOUR = 5    # 5:00 AM
+# Configured to 1:00 AM IST to 6:00 AM IST as requested
+WINDOW_START_HOUR = 1  # 1:00 AM
+WINDOW_END_HOUR = 6    # 6:00 AM
 
-# Randomized delay range between replies in seconds
-# 30 seconds to 60 seconds
-MIN_DELAY_SECS = 30   # 30 seconds
-MAX_DELAY_SECS = 60   # 60 seconds
+# Pacing Configuration
+# Set USE_RANDOM_PACING to True to randomize the delay between comments to mimic human behavior
+USE_RANDOM_PACING = True
+MIN_PACING_SECS = 300    # 5 minutes in seconds (300s)
+MAX_PACING_SECS = 1800   # 30 minutes in seconds (1800s)
 
-# Test Bypasses
-# Set to True to allow the bot to run outside the 12:00 AM - 5:00 AM IST window for testing
+# Legacy Pacing settings
+USE_FIXED_PACING = False
+PACING_SECS = 1200     # 20 minutes in seconds
+
+# 24/7 Execution Mode
+# Set to True to allow the bot to run 24/7, ignoring time window constraints
+RUN_24_7 = True
 BYPASS_WINDOW_FOR_TESTING = True
 
 # Human-like behavior options
@@ -55,15 +61,18 @@ BYPASS_WINDOW_FOR_TESTING = True
 SKIP_CHANCE = 0.15
 
 # Multimodal / Image processing capabilities
-PROCESS_IMAGES = True
+PROCESS_IMAGES = False
 TEMP_IMAGE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "temp_tweet.png"))
 
+# Logged in account username handle switcher default
+MY_USERNAME = ""
+
 # Feed URLs to cycle through when scanning for opportunity tweets.
-# Strictly cycles through the Inspiration page, For You, and Home page timelines.
+# Starts with For You page, then Inspiration page, then Home page.
 FEEDS_TO_SCAN = [
-    "https://x.com/i/jf/creators/inspiration/top_posts",
-    "https://x.com/explore",
-    "https://x.com/home"
+    "https://x.com/explore",                            # Start with For You feed
+    "https://x.com/i/jf/creators/inspiration/top_posts", # Redirect to Inspiration page
+    "https://x.com/home"                                 # Home page
 ]
 
 
