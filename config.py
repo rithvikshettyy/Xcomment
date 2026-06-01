@@ -45,7 +45,7 @@ WINDOW_END_HOUR = 6    # 6:00 AM
 # Set USE_RANDOM_PACING to True to randomize the delay between comments to mimic human behavior
 USE_RANDOM_PACING = True
 MIN_PACING_SECS = 300    # 5 minutes in seconds (300s)
-MAX_PACING_SECS = 1200   # 20 minutes in seconds (1200s)
+MAX_PACING_SECS = 600    # 10 minutes in seconds (600s)
 
 # Legacy Pacing settings
 USE_FIXED_PACING = False
