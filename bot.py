@@ -222,6 +222,21 @@ async def run_bot(dry_run: bool = False):
                         try:
                             details = await browser.analyze_tweet_details(detail_page, tweet_url)
                             
+                            # Reply restrictions guard: Skip if replies are locked/restricted
+                            if details.get("is_restricted", False):
+                                logger.info(f"-> [RESTRICTION GUARD] Tweet replies are locked/restricted. Skipping.")
+                                # Save to DB so we don't scan it again in future feed cycles
+                                db.save_reply(
+                                    tweet_id,
+                                    tweet_url,
+                                    candidate["text"],
+                                    "[RESTRICTED_REPLIES_GUARD]",
+                                    tweet_views,
+                                    0
+                                )
+                                await detail_page.close()
+                                continue
+                                
                             # Double reply guard: Check if we have already replied
                             if details.get("has_self_reply", False):
                                 logger.info(f"-> [DOUBLE REPLY GUARD] Already commented on this tweet. Saving transaction to DB to skip in future scans.")

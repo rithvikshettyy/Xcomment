@@ -217,6 +217,30 @@ async def analyze_tweet_details(page: Page, tweet_url: str) -> dict:
         logger.warning("Timeout waiting for tweet to load.")
         return {"original_text": "", "replies": [], "has_image": False}
         
+    # Check for reply restrictions (locked/restricted tweets)
+    is_restricted = False
+    try:
+        restricted_selectors = [
+            'div:has-text("Only some accounts can reply")',
+            'span:has-text("Only some accounts can reply")',
+            'div:has-text("can reply.")',
+            'span:has-text("can reply.")',
+            'div:has-text("Who can reply?")'
+        ]
+        for selector in restricted_selectors:
+            elem = await page.query_selector(selector)
+            if elem:
+                inner_text = await elem.inner_text()
+                if "can reply" in inner_text or "Who can reply" in inner_text:
+                    logger.warning(f"[RESTRICTION GUARD] Detected locked/restricted replies: '{inner_text.strip()}'. Skipping.")
+                    is_restricted = True
+                    break
+    except Exception as e_res:
+        logger.debug(f"Failed to check restricted status: {e_res}")
+        
+    if is_restricted:
+        return {"original_text": "", "replies": [], "has_image": False, "is_restricted": True}
+        
     # Get original tweet text
     main_tweet = await page.query_selector('article[data-testid="tweet"]')
     original_text = ""
