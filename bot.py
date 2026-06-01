@@ -290,11 +290,11 @@ async def run_bot(dry_run: bool = False):
                             
                         logger.info(f"Processing target: {qualified_tweet['url']}")
                         
-                        # Generate candidate replies via Gemini
+                        # Generate candidate replies via Gemini (Unified single API call to save 50% billing)
                         image_arg = config.TEMP_IMAGE_PATH if qualified_tweet.get("has_image", False) else None
                         
                         try:
-                            candidates_replies = replier.generate_reply_candidates(
+                            best_reply, candidates_replies = replier.generate_best_reply(
                                 qualified_tweet["text"],
                                 qualified_tweet["top_replies"][:5], # Send top 5 replies for context
                                 image_path=image_arg
@@ -304,13 +304,6 @@ async def run_bot(dry_run: bool = False):
                             for idx, cand in enumerate(candidates_replies):
                                 logger.info(f"  [{idx+1}] {cand}")
                                 
-                            # Select best candidate
-                            best_reply = replier.select_best_reply(
-                                candidates_replies,
-                                qualified_tweet["text"],
-                                qualified_tweet["top_replies"][:5],
-                                image_path=image_arg
-                            )
                             logger.info(f"Selected strongest reply: '{best_reply}'")
                             
                         except replier.GeminiQuotaExceededException as eq:
@@ -350,20 +343,6 @@ async def run_bot(dry_run: bool = False):
                         
                         # Safety check
                         if replier.safety_check(best_reply, qualified_tweet["text"]):
-                            # Enforce dynamic or fixed spacing delay
-                            target_delay = calculate_even_spacing_delay(replies_sent, daily_cap)
-                            
-                            # Add a tiny bit of random jitter (+/- 10%) so it looks natural and not robotic!
-                            jitter = random.randint(-int(target_delay * 0.1), int(target_delay * 0.1)) if target_delay > 10 else 0
-                            target_delay = max(config.MIN_PACING_SECS, target_delay + jitter)
-                            
-                            if last_post_time:
-                                elapsed = (datetime.datetime.now() - last_post_time).total_seconds()
-                                if elapsed < target_delay:
-                                    remaining = target_delay - elapsed
-                                    logger.info(f"[PACING DELAY] Target spacing is {target_delay}s. {elapsed:.1f}s elapsed. Sleeping for remaining {remaining:.1f}s...")
-                                    await asyncio.sleep(remaining)
-                                    
                             if dry_run:
                                 logger.info(f"[DRY RUN] Would post reply: '{best_reply}' on {qualified_tweet['url']}")
                                 db.save_reply(
@@ -375,9 +354,15 @@ async def run_bot(dry_run: bool = False):
                                     max_reply_views_observed
                                 )
                                 db.increment_replies_sent(date_str)
-                                last_post_time = datetime.datetime.now()
+                                
+                                # Enforce pacing delay after dry run log
+                                target_delay = calculate_even_spacing_delay(replies_sent, daily_cap)
+                                jitter = random.randint(-int(target_delay * 0.1), int(target_delay * 0.1)) if target_delay > 10 else 0
+                                cooldown = max(config.MIN_PACING_SECS, target_delay + jitter)
+                                logger.info(f"[DRY RUN COOLDOWN] Sleeping for {cooldown}s before initiating the next scan cycle...")
+                                await asyncio.sleep(cooldown)
                             else:
-                                logger.info("Posting reply to X...")
+                                logger.info("Posting reply to X INSTANTLY...")
                                 success = await browser.post_reply(page, qualified_tweet["url"], best_reply)
                                 if success:
                                     logger.info("Reply posted successfully!")
@@ -390,7 +375,13 @@ async def run_bot(dry_run: bool = False):
                                         max_reply_views_observed
                                     )
                                     db.increment_replies_sent(date_str)
-                                    last_post_time = datetime.datetime.now()
+                                    
+                                    # Enforce cooling/pacing delay AFTER a successful post
+                                    target_delay = calculate_even_spacing_delay(replies_sent + 1, daily_cap)
+                                    jitter = random.randint(-int(target_delay * 0.1), int(target_delay * 0.1)) if target_delay > 10 else 0
+                                    cooldown = max(config.MIN_PACING_SECS, target_delay + jitter)
+                                    logger.info(f"[COOLING COOLDOWN] Sleeping for {cooldown}s before initiating the next scan cycle...")
+                                    await asyncio.sleep(cooldown)
                                 else:
                                     logger.error("Failed to post reply.")
                         else:
@@ -412,13 +403,39 @@ async def run_bot(dry_run: bool = False):
                         current_feed_idx = (current_feed_idx + 1) % len(config.FEEDS_TO_SCAN)
                         logger.info(f"Switching feed index to {current_feed_idx} (next: {config.FEEDS_TO_SCAN[current_feed_idx]}) for the next scan.")
                         await asyncio.sleep(2)
-                except replier.GeminiQuotaExceededException:
-                    raise
                 except Exception as e_loop:
                     logger.error(f"[TEMPORARY ERROR] Unexpected error during bot loop iteration: {e_loop}")
-                    # Dispatch Gmail error alert asynchronously (non-blocking)
-                    notifier.send_error_email(f"Unexpected error in bot iteration: {e_loop}")
-                    # Switch target feed to clear potential page hangs/deadlocks
+                    
+                    # Detect if the browser, page, or context has crashed/closed
+                    err_str = str(e_loop).lower()
+                    is_browser_crash = ("closed" in err_str or "crashed" in err_str or "detached" in err_str or "target page" in err_str or "context" in err_str)
+                    
+                    if is_browser_crash:
+                        logger.warning("[NOTIFIER] Browser session crashed/closed. Re-initializing session silently...")
+                        try:
+                            # Safely attempt to close page and context to release locks
+                            await page.close()
+                            await context.close()
+                        except Exception:
+                            pass
+                        
+                        logger.info("Re-initializing browser context and page dynamically...")
+                        await asyncio.sleep(10)
+                        try:
+                            context = await browser.get_browser_context(p)
+                            page = await context.new_page()
+                            # Navigate to current timeline to resume
+                            await page.goto(config.FEEDS_TO_SCAN[current_feed_idx])
+                            await asyncio.sleep(5)
+                            logger.info("Browser session successfully re-initialized inside loop.")
+                            continue
+                        except Exception as e_reinit:
+                            logger.critical(f"Failed to re-initialize browser session: {e_reinit}")
+                            # Let it sleep and try again on next iteration
+                            await asyncio.sleep(30)
+                            continue
+                            
+                    # Otherwise, standard temporary error is logged but not emailed
                     current_feed_idx = (current_feed_idx + 1) % len(config.FEEDS_TO_SCAN)
                     logger.info(f"Switching target feed to index {current_feed_idx} ({config.FEEDS_TO_SCAN[current_feed_idx]}) to retry after a safety break.")
                     await asyncio.sleep(30)
