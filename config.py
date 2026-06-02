@@ -29,12 +29,9 @@ MIN_AVG_REPLY_VIEWS = 800     # Minimum average views of parsed comments
 MIN_HIGH_REPLY_COUNT = 4        # Minimum number of comments exceeding MIN_REPLY_VIEWS
 
 # Daily cap parameters (daily cap is randomized each day between these values)
-MIN_DAILY_REPLIES = 90
-# Note: The user commented "33 is good, no need for 60-70". 
-# However, we will respect the original capping rules but limit/default as desired.
-# Let's set the cap default to 60-70 but because of the time window it naturally stops around 33.
-# This gives the best of both worlds and matches the spec exactly.
-MAX_DAILY_REPLIES = 95
+MIN_DAILY_REPLIES = 145
+# Note: The daily cap has been increased to range around 150 to maximize impression-generating efficiency.
+MAX_DAILY_REPLIES = 155
 
 # Replying Time Window (IST)
 # Configured to 1:00 AM IST to 6:00 AM IST as requested
