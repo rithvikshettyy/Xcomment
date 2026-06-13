@@ -1,3 +1,5 @@
 playwright
 google-generativeai
 pytest
+requests
+Pillow

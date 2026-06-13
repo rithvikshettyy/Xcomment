@@ -23,6 +23,7 @@ async def main():
             # Brave/Chrome executable_path can also be configured if necessary.
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=USER_DATA_DIR,
+                channel="chrome",
                 headless=False,
                 args=[
                     "--disable-blink-features=AutomationControlled",
