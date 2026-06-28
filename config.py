@@ -7,7 +7,7 @@ import random
 # LLM BACKEND — Ollama (qwen3-vl:235b-cloud)
 # ──────────────────────────────────────────────────────────────────
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-vl:235b-cloud")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:480b-cloud")
 OLLAMA_TIMEOUT = 120  # seconds to wait for Ollama response
 
 # Legacy Gemini API key (kept for backward compatibility, no longer primary)
