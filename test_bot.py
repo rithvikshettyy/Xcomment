@@ -30,9 +30,10 @@ def test_db_operations():
     assert has_replied("fake_id_123")
     
     # Test daily cap values
+    import config
     date_str = "2026-05-30"
     cap = get_or_create_daily_cap(date_str)
-    assert 60 <= cap <= 70
+    assert config.MIN_DAILY_REPLIES <= cap <= config.MAX_DAILY_REPLIES
     
     # Increment replies
     initial = get_replies_sent_today(date_str)
@@ -56,18 +57,11 @@ def test_safety_check():
     assert safety_check("Such a friendly atmosphere here.", "Valid context")
 
 
-def test_quota_error_detection():
-    from replier import is_quota_error, GeminiQuotaExceededException
+def test_ollama_exception():
+    from replier import OllamaException
     
-    # 1. Test is_quota_error with simulated exceptions
-    assert is_quota_error(ValueError("API quota exceeded"))
-    assert is_quota_error(RuntimeError("429 resource exhausted"))
-    assert is_quota_error(Exception("Rate limit reached on model"))
-    assert not is_quota_error(ValueError("Normal API error message"))
-    
-    # 2. Test raising GeminiQuotaExceededException
-    with pytest.raises(GeminiQuotaExceededException):
-        raise GeminiQuotaExceededException("Quota exhausted!")
+    with pytest.raises(OllamaException):
+        raise OllamaException("Ollama request failed")
 
 
 def test_dynamic_spacing_calculation():

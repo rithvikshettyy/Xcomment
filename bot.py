@@ -321,40 +321,16 @@ async def run_bot(dry_run: bool = False):
                                 
                             logger.info(f"Selected strongest reply: '{best_reply}'")
                             
-                        except replier.GeminiQuotaExceededException as eq:
+                        except replier.OllamaException as eo:
                             logger.warning("=" * 60)
-                            logger.warning(f"GEMINI API KEY EXHAUSTED: {eq}")
+                            logger.warning(f"OLLAMA API ERROR: {eo}")
                             logger.warning("=" * 60)
                             
-                            # Detect Daily Cap exhaustion (GenerateRequestsPerDayPerProjectPerModel-FreeTier)
-                            err_msg = str(eq)
-                            is_daily_limit = ("day" in err_msg.lower()) or ("freetier" in err_msg.lower())
-                            
-                            # Dynamically parse the API's recommended retry delay (in seconds) if present
-                            import re
-                            retry_match = re.search(r"retry\s+in\s+([\d\.]+)\s*s", err_msg, re.IGNORECASE)
-                            short_delay = 0.0
-                            if retry_match and not is_daily_limit:
-                                try:
-                                    short_delay = float(retry_match.group(1))
-                                except ValueError:
-                                    pass
-                                    
-                            if 0 < short_delay < 300: # If delay is short (under 5 minutes), wait exactly that delay plus safety buffer
-                                wait_time = int(short_delay) + 5
-                                logger.warning(f"Gemini API rate limit hit. Sleeping for exact retry delay of {wait_time} seconds before retrying...")
-                                
-                                # Keep laptop awake during short block
-                                set_keep_awake(True)
-                                await asyncio.sleep(wait_time)
-                                set_keep_awake(False)
-                                
-                                logger.info("Resuming timeline scan now...")
-                                continue
-                            else:
-                                # Re-raise to cleanly close browser and exit immediately as requested
-                                logger.critical("Gemini daily quota limit exhausted. Terminating program cleanly...")
-                                raise eq
+                            wait_time = 30
+                            logger.warning(f"Ollama call failed. Sleeping for {wait_time} seconds before retrying scan...")
+                            await asyncio.sleep(wait_time)
+                            logger.info("Resuming timeline scan now...")
+                            continue
                         
                         # Safety check
                         if replier.safety_check(best_reply, qualified_tweet["text"]):
@@ -455,10 +431,10 @@ async def run_bot(dry_run: bool = False):
                     logger.info(f"Switching target feed to index {current_feed_idx} ({config.FEEDS_TO_SCAN[current_feed_idx]}) to retry after a safety break.")
                     await asyncio.sleep(30)
                     
-        except replier.GeminiQuotaExceededException as eq:
-            logger.critical(f"GEMINI API FREE TIER LIMIT REACHED: {eq}")
-            # Dispatch Gmail error alert for quota exhaustion
-            notifier.send_error_email(f"Gemini API Quota Limit Exhausted: {eq}")
+        except replier.OllamaException as eo:
+            logger.critical(f"OLLAMA API CRITICAL ERROR: {eo}")
+            # Dispatch Gmail error alert for Ollama critical error
+            notifier.send_error_email(f"Ollama API Critical Error: {eo}")
             logger.info("Closing browser context and terminating cleanly...")
             try:
                 await context.close()

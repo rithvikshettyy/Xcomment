@@ -1,50 +1,67 @@
 import json
 import logging
-from config import GEMINI_API_KEY
+import base64
+import requests
+import os
+import re
+from config import OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT
 
 # Configure logging
 logger = logging.getLogger("bot.replier")
 
-class GeminiQuotaExceededException(Exception):
-    """Exception raised when the Gemini API quota is exceeded."""
+class OllamaException(Exception):
+    """Exception raised when the Ollama API fails, returns an error, or times out."""
     pass
 
-def is_quota_error(e: Exception) -> bool:
-    """Detects if a given exception corresponds to a Gemini API quota exhaust error."""
-    err_str = str(e).lower()
-    # Check by exception class name or standard status code/message
-    if "resourceexhausted" in e.__class__.__name__.lower() or "429" in err_str or "quota" in err_str or "exhausted" in err_str or "limit" in err_str:
-        return True
+def encode_image_to_base64(image_path: str) -> str:
+    """Encodes an image file to a base64 string."""
     try:
-        from google.api_core.exceptions import ResourceExhausted
-        if isinstance(e, ResourceExhausted):
-            return True
-    except ImportError:
-        pass
-    return False
-
-def get_gemini_client():
-    """Initializes and returns a Google GenerativeAI model."""
-    if not GEMINI_API_KEY:
-        logger.warning("GEMINI_API_KEY configuration is empty! Please check your environment variables or config.py.")
-        return None
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_API_KEY)
-        # Using gemini-2.5-flash as default, but configurable
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        return model
+        with open(image_path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode("utf-8")
     except Exception as e:
-        logger.error(f"Failed to initialize Gemini Client: {e}")
-        return None
+        logger.error(f"Failed to encode image {image_path}: {e}")
+        return ""
+
+def call_ollama(prompt: str, image_path: str = None) -> str:
+    """Invokes Ollama /api/chat endpoint with JSON format enforcement."""
+    url = f"{OLLAMA_BASE_URL.rstrip('/')}/api/chat"
+    
+    messages = []
+    user_message = {
+        "role": "user",
+        "content": prompt
+    }
+    
+    if image_path and os.path.exists(image_path):
+        img_b64 = encode_image_to_base64(image_path)
+        if img_b64:
+            user_message["images"] = [img_b64]
+            logger.info(f"[MULTIMODAL] Sent tweet visual screenshot context from '{image_path}' to Ollama.")
+            
+    messages.append(user_message)
+    
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": messages,
+        "stream": False,
+        "format": "json"
+    }
+    
+    try:
+        response = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
+        if response.status_code != 200:
+            raise OllamaException(f"Ollama server returned status code {response.status_code}: {response.text}")
+        
+        resp_json = response.json()
+        content = resp_json.get("message", {}).get("content", "").strip()
+        if not content:
+            raise OllamaException("Ollama response message content was empty.")
+        return content
+    except requests.RequestException as e:
+        raise OllamaException(f"Failed to connect to Ollama host: {e}")
 
 def generate_reply_candidates(original_tweet: str, top_replies: list, image_path: str = None) -> list[str]:
-    """Generates 3 candidate replies using Gemini by analyzing original tweet context and top replies."""
-    model = get_gemini_client()
-    if not model:
-        logger.error("Gemini model not initialized. Returning fallback candidates.")
-        return ["Wow, that's fascinating!", "Interesting perspective on this.", "Totally agree with this viewpoint."]
-        
+    """Generates 3 candidate replies using Ollama by analyzing original tweet context and top replies."""
     # Filter to only the text of the top 3 replies to drastically reduce input tokens/cost
     texts_only = [r["text"] if isinstance(r, dict) and "text" in r else str(r) for r in top_replies[:3]] if isinstance(top_replies, list) else []
     replies_str = json.dumps(texts_only, indent=2)
@@ -79,43 +96,33 @@ Example:
 """
 
     try:
-        from PIL import Image
-        import os
-        
-        inputs = []
-        if image_path and os.path.exists(image_path):
-            try:
-                img = Image.open(image_path)
-                inputs.append(img)
-                logger.info(f"[MULTIMODAL] Sent tweet visual screenshot context from '{image_path}' to Gemini.")
-            except Exception as e_img:
-                logger.error(f"Failed to open image for Gemini: {e_img}")
-                
-        inputs.append(prompt)
-        response = model.generate_content(inputs)
-        content = response.text.strip()
+        content = call_ollama(prompt, image_path)
+        # Clean markdown code blocks if the model outputs them anyway
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+            
         candidates = json.loads(content)
         if isinstance(candidates, list) and len(candidates) >= 1:
             return [str(c).strip() for c in candidates[:3]]
         else:
             raise ValueError("Parsed content was not a valid list of candidates.")
     except Exception as e:
-        if is_quota_error(e):
-            raise GeminiQuotaExceededException(f"Gemini API quota exceeded: {e}") from e
-        logger.error(f"Error generating replies via Gemini: {e}")
-        # Try a relaxed parser if Gemini wrapped it in markdown anyway
+        if isinstance(e, OllamaException):
+            raise e
+        logger.error(f"Error generating replies via Ollama: {e}")
+        # Try a relaxed parser if model wrapped it in markdown anyway
         try:
-            if 'response' in locals() and response and hasattr(response, 'text'):
-                if "```" in response.text:
-                    cleaned = response.text.split("```json")[1].split("```")[0].strip()
-                elif "```" in response.text:
-                    cleaned = response.text.split("```")[1].split("```")[0].strip()
+            if 'content' in locals() and content:
+                if "```json" in content:
+                    cleaned = content.split("```json")[1].split("```")[0].strip()
+                elif "```" in content:
+                    cleaned = content.split("```")[1].split("```")[0].strip()
                 else:
-                    cleaned = response.text.strip()
+                    cleaned = content.strip()
                 candidates = json.loads(cleaned)
                 return [str(c).strip() for c in candidates[:3]]
-            else:
-                raise ValueError("No response was generated to parse.")
         except Exception as e_inner:
             logger.error(f"Fallback parser failed: {e_inner}")
             
@@ -123,9 +130,8 @@ Example:
     return ["Interesting points here.", "Absolutely correct.", "I had the exact same thought."]
 
 def select_best_reply(candidates: list[str], original_tweet: str, top_replies: list, image_path: str = None) -> str:
-    """Uses Gemini API to evaluate and rank the 3 candidates, returning the strongest one."""
-    model = get_gemini_client()
-    if not model or len(candidates) < 1:
+    """Uses Ollama API to evaluate and rank the 3 candidates, returning the strongest one."""
+    if len(candidates) < 1:
         return candidates[0] if candidates else "Interesting perspective."
         
     candidates_str = json.dumps(candidates, indent=2)
@@ -152,23 +158,18 @@ Candidates to Choose From:
 {candidates_str}
 \"\"\"
 
-Return ONLY the selected candidate reply text. Do not provide explanations, do not provide markdown, do not wrap it in quotes. Just return the exact text of the best reply.
+Return the best candidate reply from the list. Format your response as a JSON object with one key "best_reply" containing the exact string of the selected candidate reply. Do not write any explanations or markdown.
 """
     try:
-        from PIL import Image
-        import os
+        content = call_ollama(prompt, image_path)
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+            
+        data = json.loads(content)
+        selected = data.get("best_reply", "").strip()
         
-        inputs = []
-        if image_path and os.path.exists(image_path):
-            try:
-                img = Image.open(image_path)
-                inputs.append(img)
-            except Exception:
-                pass
-                
-        inputs.append(prompt)
-        response = model.generate_content(inputs)
-        selected = response.text.strip()
         # Clean quotes if any
         if selected.startswith('"') and selected.endswith('"'):
             selected = selected[1:-1]
@@ -185,9 +186,9 @@ Return ONLY the selected candidate reply text. Do not provide explanations, do n
             return selected
             
     except Exception as e:
-        if is_quota_error(e):
-            raise GeminiQuotaExceededException(f"Gemini API quota exceeded during selection: {e}") from e
-        logger.error(f"Error selecting best reply: {e}")
+        if isinstance(e, OllamaException):
+            raise e
+        logger.error(f"Error selecting best reply via Ollama: {e}")
         
     return candidates[0]
 
@@ -215,7 +216,6 @@ def safety_check(reply: str, original_tweet: str) -> bool:
         
     # Check for prohibited harm/sensitive words to avoid X flags/suspensions
     harm_words = ["kill", "killed", "rape", "die", "died", "murder", "suicide", "death"]
-    import re
     cleaned_reply = re.sub(r'[^\w\s]', ' ', reply.lower())
     reply_words = cleaned_reply.split()
     for word in harm_words:
@@ -225,15 +225,8 @@ def safety_check(reply: str, original_tweet: str) -> bool:
             
     return True
 
-
 def generate_best_reply(original_tweet: str, top_replies: list, image_path: str = None) -> tuple[str, list[str]]:
-    """Generates 3 candidates and selects the best one in a single unified Gemini API call to reduce API usage/billing by 50%."""
-    model = get_gemini_client()
-    if not model:
-        logger.error("Gemini model not initialized. Returning fallback candidate.")
-        fallbacks = ["Wow, that's fascinating!", "Interesting perspective on this.", "Totally agree with this viewpoint."]
-        return fallbacks[0], fallbacks
-        
+    """Generates 3 candidates and selects the best one in a single unified Ollama API call."""
     # Filter to only the text of the top 3 replies to drastically reduce input tokens/cost
     texts_only = [r["text"] if isinstance(r, dict) and "text" in r else str(r) for r in top_replies[:3]] if isinstance(top_replies, list) else []
     replies_str = json.dumps(texts_only, indent=2)
@@ -259,7 +252,7 @@ Guidelines for generating candidates:
 2. Ensure they are relevant to the topic of the original tweet.
 3. Match the tone and humor style of the thread (whether it's sarcastic, funny, intellectual, curious, or meme-focused).
 4. Be concise and punchy. Human tweets are rarely long paragraphs.
-5. Sound human and conversational. Avoid corporate speak, overly polished marketing phrases, or typical AI clichés (e.g., "Ah, the beauty of...", "Indeed,", "Let's delve in").
+5. Sound human and conversational. Avoid corporate speak, overly polished marketing phrases, or typical AI clichés (e.g., "Ah, the beauty of...", "Indeed,", "Let's dive in").
 6. AVOID hashtags unless they are extremely natural or part of a joke in the thread.
 7. AVOID emojis unless they are commonly used in the thread. If you use them, use them sparingly (1 emoji max).
 8. STRICTLY AVOID using any harm-related, violent, or sensitive words like "kill", "killed", "rape", "die", "died", "murder", "suicide", "death", or any variation of them. This is critical to avoid X auto-flags or account suspension.
@@ -268,27 +261,13 @@ Format your output strictly as a JSON object with two keys:
 1. "candidates": a list of 3 generated candidate replies as strings.
 2. "best_reply": the selected best candidate reply as a string (it must be one of the strings inside the "candidates" list).
 
-Return ONLY the raw JSON object. Do not include any markdown styling (no ```json code blocks), just a pure JSON object.
+Return ONLY the raw JSON object. Do not include any markdown styling, just a pure JSON object.
 """
 
     try:
-        from PIL import Image
-        import os
+        content = call_ollama(prompt, image_path)
         
-        inputs = []
-        if image_path and os.path.exists(image_path):
-            try:
-                img = Image.open(image_path)
-                inputs.append(img)
-                logger.info(f"[MULTIMODAL] Sent tweet visual screenshot context from '{image_path}' to Gemini.")
-            except Exception as e_img:
-                logger.error(f"Failed to open image for Gemini: {e_img}")
-                
-        inputs.append(prompt)
-        response = model.generate_content(inputs)
-        content = response.text.strip()
-        
-        # Clean markdown code blocks if Gemini outputs them anyway
+        # Clean markdown code blocks if the model outputs them anyway
         if "```json" in content:
             content = content.split("```json")[1].split("```")[0].strip()
         elif "```" in content:
@@ -306,14 +285,14 @@ Return ONLY the raw JSON object. Do not include any markdown styling (no ```json
         return best_reply, [str(c).strip() for c in candidates[:3]]
         
     except Exception as e:
-        if is_quota_error(e):
-            raise GeminiQuotaExceededException(f"Gemini API quota exceeded: {e}") from e
-        logger.error(f"Error generating replies via unified Gemini API call: {e}")
+        if isinstance(e, OllamaException):
+            raise e
+        logger.error(f"Error generating replies via unified Ollama call: {e}")
         
-        # Try a relaxed parser if Gemini wrapped it in markdown or different format
+        # Try a relaxed parser if model wrapped it in markdown or different format
         try:
-            if 'response' in locals() and response and hasattr(response, 'text'):
-                raw_text = response.text.strip()
+            if 'content' in locals() and content:
+                raw_text = content.strip()
                 if "```json" in raw_text:
                     cleaned = raw_text.split("```json")[1].split("```")[0].strip()
                 elif "```" in raw_text:
@@ -331,4 +310,3 @@ Return ONLY the raw JSON object. Do not include any markdown styling (no ```json
     # Absolute fallback
     fallbacks = ["Interesting points here.", "Absolutely correct.", "I had the exact same thought."]
     return fallbacks[0], fallbacks
-

@@ -257,7 +257,7 @@ async def analyze_tweet_details(page: Page, tweet_url: str) -> dict:
                     'div[data-testid="tweetPhoto"], div[data-testid="videoPlayer"], div[data-testid="card.wrapper"], img[src*="media"]'
                 )
                 if media_elem:
-                    logger.info("Visual media detected inside tweet. Capturing tweet screenshot for Gemini multimodal input...")
+                    logger.info("Visual media detected inside tweet. Capturing tweet screenshot for Ollama multimodal input...")
                     # Take screenshot of the entire main_tweet block
                     await main_tweet.screenshot(path=config.TEMP_IMAGE_PATH)
                     has_image = True
